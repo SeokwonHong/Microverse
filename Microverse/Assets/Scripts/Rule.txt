@@ -1,0 +1,12 @@
+ProjectName/
+ ├── Scripts/
+ │    ├── Core/
+ │    │     └── GameManager.cs
+ │    ├── Simulation/
+ │    │     ├── CellManager512.cs   ← 요 코드!
+ │    │     ├── CellData.cs         ← (추후 Cell 구조체 분리용)
+ │    │     └── GridMath.cs         ← (추후 인덱싱/유틸)
+ │    ├── Rendering/
+ │    │     └── CellRenderer.cs     ← (추후 Compute Shader 렌더용)
+ │    └── UI/
+ │          └── HUD.cs
