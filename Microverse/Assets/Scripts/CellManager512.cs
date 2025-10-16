@@ -88,6 +88,24 @@ namespace Microverse.Scripts.Simulation
                 velCur[i] = float2.zero;
                 species[i] = (byte)(rng.NextFloat() < 0.5f ? 0 : 1);
             }
+
+            if (colorBySpecies == null || colorBySpecies.colorKeys == null || colorBySpecies.colorKeys.Length == 0)
+            {
+                var g = new Gradient();
+                g.SetKeys(
+                    new[]
+                    {
+            new GradientColorKey(new Color(1f, 0.85f, 0.2f), 0f), // 종 A = 노랑
+            new GradientColorKey(new Color(0.2f, 0.8f, 1f), 1f)   // 종 B = 시안
+                    },
+                    new[]
+                    {
+            new GradientAlphaKey(1f, 0f),
+            new GradientAlphaKey(1f, 1f)
+                    }
+                );
+                colorBySpecies = g;
+            }
         }
 
         void OnDestroy()
