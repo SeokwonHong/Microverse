@@ -1,274 +1,396 @@
-using System.Runtime.CompilerServices;
-using Unity.Burst;
+Ôªøusing Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Microverse.Scripts.Simulation
 {
-    [RequireComponent(typeof(Renderer))]
-    public class CellManager512 : MonoBehaviour
+    /// <summary>
+    /// "ÏÑ∏Ìè¨" Í∞úÏ≤¥Îì§Ïù¥ ÏÑúÎ°ú Î∞ÄÍ≥† ÎÅåÎ¶¨Î©∞ ÏÉÅÌò∏ÏûëÏö©ÌïòÎäî ÏûÖÏûêÌòï CA ÏãúÏä§ÌÖú.
+    /// ÎçîÎ∏î Î≤ÑÌçº Î∞©ÏãùÏúºÎ°ú ÏïàÏ†ÑÌïòÍ≤å Î≥ëÎ†¨ Ï≤òÎ¶¨.
+    /// </summary>
+    public class CellAgents : MonoBehaviour
     {
-        [Header("Grid")]
-        public int width = 512;
-        public int height = 512;
-        public bool wrapEdges = true;   // ∞Ê∞Ë ∑°«Œ(≈‰∑ØΩ∫)
+        [Header("Agents")]
+        public int agentCount = 600;
+        public float radius = 0.08f;
+        public float mass = 1f;
+        [Range(0f, 2f)] public float sameAttract = 0.6f;
+        [Range(0f, 2f)] public float diffRepel = 0.8f;
+        [Range(0f, 5f)] public float stiffRepel = 3.0f;
+        [Range(0f, 1f)] public float viscosity = 0.15f;
+        [Range(0f, 2f)] public float noise = 0.25f;
+        public float maxSpeed = 3f;
 
-        [Header("Sim")]
-        [Range(0.01f, 0.2f)] public float tickSeconds = 0.03f; // æ‡ 33Hz
-        public int seed = 1;            // ∑£¥˝ Ω√µÂ
-        public bool pause = false;      // Space∑Œ ≈‰±€
+        [Header("World")]
+        public Vector2 worldSize = new Vector2(16, 9);
+        public bool wrapEdges = false;
 
-        // ≈ÿΩ∫√≥ & ≈∏¿Ã∏”
-        private Texture2D tex;
-        private float timer;
+        [Header("Time")]
+        public float simHz = 120f;
+        public int substeps = 1;
 
-        // ¥ı∫Ìπˆ∆€(ªÛ≈¬: 0=∫Û, 1=A, 2=B)
-        private NativeArray<byte> stateCur;
-        private NativeArray<byte> stateNext;
+        [Header("Render")]
+        public Mesh quadMesh;
+        public Material instancedMat;
+        public Gradient colorBySpecies;
 
-        // ∑ª¥ı πˆ∆€
-        private NativeArray<Color32> pixelNA;
+        // ===== ÎÇ¥Î∂Ä Î≤ÑÌçº =====
+        NativeArray<float2> posCur, posNext;
+        NativeArray<float2> velCur, velNext;
+        NativeArray<byte> species;
 
-        // ∆»∑π∆Æ
-        static readonly Color32 colBg = new Color32(10, 12, 20, 255);
-        static readonly Color32 colA = new Color32(60, 220, 160, 255);
-        static readonly Color32 colB = new Color32(240, 90, 90, 255);
+        // ===== Í≥µÍ∞Ñ Ìï¥Ïãú =====
+        struct HashHeader { public int start; public int count; }
+        NativeArray<HashHeader> grid;
+        NativeArray<int> indices;
+        int cellsX, cellsY;
+        float cellSize;
 
-        void Awake()
+        // ===== Î†åÎçîÎßÅ =====
+        Matrix4x4[] matrices;
+        Vector4[] colors;
+        MaterialPropertyBlock mpb;
+
+        float dt;
+
+        void Start()
         {
             Application.targetFrameRate = 120;
+            dt = 1f / math.max(30f, simHz);
 
-            // 1) ƒ´∏ﬁ∂Û ∫Ò¿≤ø° ±◊∏ÆµÂ ∞°∑Œ∆¯¿ª ∏¬√·¥Ÿ (¡§ªÁ∞¢ πÊ¡ˆ)
-            var cam = Camera.main;
-            cam.orthographic = true;
-            int targetWidth = Mathf.Max(1, Mathf.RoundToInt(height * cam.aspect)); // øπ: 16:9∏È 512*1.777=~910
-            width = targetWidth;
+            if (quadMesh == null) quadMesh = BuildQuad();
+            if (instancedMat == null) instancedMat = new Material(Shader.Find("Unlit/Color"));
+            mpb = new MaterialPropertyBlock();
+            matrices = new Matrix4x4[1023];
+            colors = new Vector4[1023];
 
-            // 2) ¿Ã¡¶ ∏¬√· width/height∑Œ πˆ∆€/≈ÿΩ∫√≥ ª˝º∫
-            int N = width * height;
-            stateCur = new NativeArray<byte>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            stateNext = new NativeArray<byte>(N, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            pixelNA = new NativeArray<Color32>(N, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            posCur = new NativeArray<float2>(agentCount, Allocator.Persistent);
+            posNext = new NativeArray<float2>(agentCount, Allocator.Persistent);
+            velCur = new NativeArray<float2>(agentCount, Allocator.Persistent);
+            velNext = new NativeArray<float2>(agentCount, Allocator.Persistent);
+            species = new NativeArray<byte>(agentCount, Allocator.Persistent);
 
-            tex = new Texture2D(width, height, TextureFormat.RGBA32, false, false);
-            tex.filterMode = FilterMode.Bilinear;
+            cellSize = math.max(radius * 2f, 0.05f);
+            cellsX = math.max(1, (int)math.ceil(worldSize.x / cellSize));
+            cellsY = math.max(1, (int)math.ceil(worldSize.y / cellSize));
+            grid = new NativeArray<HashHeader>(cellsX * cellsY, Allocator.Persistent);
+            indices = new NativeArray<int>(agentCount, Allocator.Persistent);
 
-            var r = GetComponent<Renderer>();
-            if (r.sharedMaterial == null) r.material = new Material(Shader.Find("Unlit/Texture"));
-            r.sharedMaterial.mainTexture = tex;
-
-            Randomize(0.55f);
-            DrawImmediate();
-
-            // 3) ¡§ªÁ∞¢ Ω∫ƒ…¿œ∑Ø ¥ÎΩ≈, ƒ´∏ﬁ∂Û ∫‰ø° ≤À ¬˜µµ∑œ ºº∆√
-            FitQuadToCameraView();
+            var rng = new Unity.Mathematics.Random(12345);
+            for (int i = 0; i < agentCount; i++)
+            {
+                float x = (rng.NextFloat() - 0.5f) * (worldSize.x * 0.8f);
+                float y = (rng.NextFloat() - 0.5f) * (worldSize.y * 0.8f);
+                posCur[i] = new float2(x, y);
+                velCur[i] = float2.zero;
+                species[i] = (byte)(rng.NextFloat() < 0.5f ? 0 : 1);
+            }
         }
 
         void OnDestroy()
         {
-            if (stateCur.IsCreated) stateCur.Dispose();
-            if (stateNext.IsCreated) stateNext.Dispose();
-            if (pixelNA.IsCreated) pixelNA.Dispose();
+            if (posCur.IsCreated) posCur.Dispose();
+            if (posNext.IsCreated) posNext.Dispose();
+            if (velCur.IsCreated) velCur.Dispose();
+            if (velNext.IsCreated) velNext.Dispose();
+            if (species.IsCreated) species.Dispose();
+            if (grid.IsCreated) grid.Dispose();
+            if (indices.IsCreated) indices.Dispose();
         }
 
         void Update()
         {
-            // ¿‘∑¬
-            if (Input.GetKeyDown(KeyCode.Space)) pause = !pause;
-            if (Input.GetKeyDown(KeyCode.R)) { Randomize(0.55f); DrawImmediate(); }
-            if (Input.GetKeyDown(KeyCode.C)) { Clear(); DrawImmediate(); }
-            HandleBrush();
+            for (int s = 0; s < math.max(1, substeps); s++)
+                Step();
 
-            if (pause) return;
-
-            timer += Time.deltaTime;
-            if (timer < tickSeconds) return;
-            timer = 0f;
-
-            // 1) Ω√πƒ Ω∫≈‹(Job)
-            var stepJob = new StepJob
+            // Î†åÎçîÎßÅ (GPU Ïù∏Ïä§ÌÑ¥Ïã±)
+            int countInBatch = 0;
+            for (int i = 0; i < agentCount; i++)
             {
-                W = width,
-                H = height,
+                Vector3 p = new Vector3(posCur[i].x, posCur[i].y, 0f);
+                float d = radius * 2f;
+                matrices[countInBatch] = Matrix4x4.TRS(p, Quaternion.identity, new Vector3(d, d, 1f));
+
+                Color c = colorBySpecies.Evaluate(species[i]);
+                colors[countInBatch] = new Vector4(c.r, c.g, c.b, 1f);
+
+                countInBatch++;
+                if (countInBatch == 1023)
+                {
+                    mpb.SetVectorArray("_Color", colors);
+                    Graphics.DrawMeshInstanced(quadMesh, 0, instancedMat,
+                        matrices, countInBatch, mpb,
+                        ShadowCastingMode.Off, false, 0, null,
+                        LightProbeUsage.Off, null);
+                    countInBatch = 0;
+                }
+            }
+
+            if (countInBatch > 0)
+            {
+                mpb.SetVectorArray("_Color", colors);
+                Graphics.DrawMeshInstanced(quadMesh, 0, instancedMat,
+                    matrices, countInBatch, mpb,
+                    ShadowCastingMode.Off, false, 0, null,
+                    LightProbeUsage.Off, null);
+            }
+        }
+
+        // ====== ÏãúÎÆ¨ ======
+        void Step()
+        {
+            // 1) Í≥µÍ∞Ñ Ìï¥Ïãú(Ïã±Í∏Ä Ïä§Î†àÎìú ÏïàÏ†ï Î≤ÑÏ†Ñ)
+            new CountJobSingle
+            {
+                W = worldSize,
+                CellSize = cellSize,
+                CellsX = cellsX,
+                CellsY = cellsY,
+                PosCur = posCur,
+                Grid = grid
+            }.Run();
+
+            new FillJobSingle
+            {
+                W = worldSize,
+                CellSize = cellSize,
+                CellsX = cellsX,
+                CellsY = cellsY,
+                PosCur = posCur,
+                Grid = grid,
+                Indices = indices
+            }.Run();
+
+            // 2) Force & Integrate
+            new ForceIntegrateJob
+            {
+                W = worldSize,
                 Wrap = wrapEdges ? (byte)1 : (byte)0,
-                StateCur = stateCur,
-                StateNext = stateNext
-            };
-            JobHandle h1 = stepJob.Schedule(stateCur.Length, 256);
-            h1.Complete();
+                dt = dt,
+                mass = mass,
+                radius = radius,
+                sameAttract = sameAttract,
+                diffRepel = diffRepel,
+                stiffRepel = stiffRepel,
+                viscosity = viscosity,
+                noise = noise,
+                maxSpeed = maxSpeed,
 
-            // 2) πˆ∆€ Ω∫ø“
-            (stateCur, stateNext) = (stateNext, stateCur);
+                CellsX = cellsX,
+                CellsY = cellsY,
+                CellSize = cellSize,
+                Grid = grid,
+                Indices = indices,
+                PosCur = posCur,
+                VelCur = velCur,
+                PosNext = posNext,
+                VelNext = velNext,
+                Species = species
+            }.Schedule(agentCount, 128).Complete();
 
-            // 3) «»ºø ∫Ø»Ø(Job)
-            var drawJob = new MapToPixelsJob
+            // 3) Î≤ÑÌçº Ïä§Ïôë
+            (posCur, posNext) = (posNext, posCur);
+            (velCur, velNext) = (velNext, velCur);
+        }
+
+        // ===== JOBS =====
+        [BurstCompile]
+        struct CountJobSingle : IJob
+        {
+            public float2 W;
+            public float CellSize;
+            public int CellsX, CellsY;
+            [ReadOnly] public NativeArray<float2> PosCur;
+            public NativeArray<HashHeader> Grid;
+
+            public void Execute()
             {
-                State = stateCur,
-                Pixels = pixelNA,
-                ColBg = colBg,
-                ColA = colA,
-                ColB = colB
-            };
-            JobHandle h2 = drawJob.Schedule(pixelNA.Length, 512);
-            h2.Complete();
-
-            // 4) ≈ÿΩ∫√≥ æ˜∑ŒµÂ(∫πªÁ æ¯¿Ã)
-            tex.SetPixelData(pixelNA, 0);
-            tex.Apply(false, false);
-        }
-
-        // ===== ¿Ø∆ø =====
-        void Randomize(float density)
-        {
-            var rng = new System.Random(seed);
-            for (int i = 0; i < stateCur.Length; i++)
-            {
-                double r = rng.NextDouble();
-                stateCur[i] = (byte)(r < density ? (rng.NextDouble() < 0.5 ? 1 : 2) : 0);
-            }
-        }
-
-        void Clear()
-        {
-            // MemClear ¥ÎΩ≈ æ»¿¸«— ∑Á«¡ πÊΩƒ
-            for (int i = 0; i < stateCur.Length; i++)
-                stateCur[i] = 0;
-        }
-        void FitQuadToCameraView()
-        {
-            var cam = Camera.main;
-            cam.orthographic = true;
-
-            // ƒ´∏ﬁ∂Û∞° ∫∏ø©¡÷¥¬ ø˘µÂ ≥Ù¿Ã/∆¯
-            float worldHeight = cam.orthographicSize * 2f;
-            float worldWidth = worldHeight * cam.aspect;
-
-            // Quad∏¶ ƒ´∏ﬁ∂Û ∫‰ø° ¡§»Æ»˜ ∏¬√„ (∞°∑Œ°§ºº∑Œ º≠∑Œ ¥Ÿ∏£∞‘ Ω∫ƒ…¿œ)
-            transform.position = new Vector3(cam.transform.position.x, cam.transform.position.y, 0f);
-            transform.rotation = Quaternion.identity;
-            transform.localScale = new Vector3(worldWidth, worldHeight, 1f);
-        }
-        void HandleBrush()
-        {
-            // ¡¬≈¨∏Ø=A, øÏ≈¨∏Ø=B, »Ÿ≈¨∏Ø=¡ˆøÏ∞≥(0)
-            if (!Input.GetMouseButton(0) && !Input.GetMouseButton(1) && !Input.GetMouseButton(2)) return;
-
-            var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            if (!Physics.Raycast(ray, out var hit)) return;   // Quadø° Collider « ø‰(MeshCollider µÓ)
-
-            var uv = hit.textureCoord;
-            int cx = math.clamp((int)(uv.x * width), 0, width - 1);
-            int cy = math.clamp((int)(uv.y * height), 0, height - 1);
-            int r = (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) ? 3 : 1;
-
-            byte s = 0;
-            if (Input.GetMouseButton(0)) s = 1;
-            else if (Input.GetMouseButton(1)) s = 2;
-            else s = 0;
-
-            for (int dy = -r; dy <= r; dy++)
-                for (int dx = -r; dx <= r; dx++)
+                for (int c = 0; c < Grid.Length; c++)
                 {
-                    int x = cx + dx, y = cy + dy;
-                    if (wrapEdges)
-                    {
-                        if (x < 0) x += width; else if (x >= width) x -= width;
-                        if (y < 0) y += height; else if (y >= height) y -= height;
-                    }
-                    else
-                    {
-                        if ((uint)x >= (uint)width || (uint)y >= (uint)height) continue;
-                    }
-                    stateCur[y * width + x] = s;
-                }
-        }
-
-        
-        void DrawImmediate()
-        {
-            for (int i = 0; i < pixelNA.Length; i++)
-            {
-                byte s = stateCur[i];
-                pixelNA[i] = (s == 0) ? colBg : (s == 1 ? colA : colB);
-            }
-            tex.SetPixelData(pixelNA, 0);
-            tex.Apply(false, false);
-        }
-
-        // ===== Burst Jobs =====
-        [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low)]
-        struct StepJob : IJobParallelFor
-        {
-            public int W, H;
-            public byte Wrap;
-
-            [ReadOnly] public NativeArray<byte> StateCur;
-            [WriteOnly] public NativeArray<byte> StateNext;
-
-            public void Execute(int i)
-            {
-                int x = i % W;
-                int y = i / W;
-
-                byte s = StateCur[i];
-                int nA = 0, nB = 0;
-
-                // 8-¿ÃøÙ ƒ´øÓ∆Æ (∑Œƒ√ «‘ºˆ ¥ÎΩ≈ ∏ﬁº≠µÂ »£√‚)
-                CountAt(ref nA, ref nB, x - 1, y + 1);
-                CountAt(ref nA, ref nB, x, y + 1);
-                CountAt(ref nA, ref nB, x + 1, y + 1);
-                CountAt(ref nA, ref nB, x - 1, y);
-                CountAt(ref nA, ref nB, x + 1, y);
-                CountAt(ref nA, ref nB, x - 1, y - 1);
-                CountAt(ref nA, ref nB, x, y - 1);
-                CountAt(ref nA, ref nB, x + 1, y - 1);
-
-                // ∞£¥‹ ∞Ê¿Ô ∑Í
-                byte nextS;
-                if (s == 0)
-                    nextS = (byte)((nA >= 3 && nA > nB) ? 1 : ((nB >= 3 && nB > nA) ? 2 : 0));
-                else if (s == 1)
-                    nextS = (byte)((nB >= nA + 2) ? 2 : ((nA < 2) ? 0 : 1));
-                else
-                    nextS = (byte)((nA >= nB + 2) ? 1 : ((nB < 2) ? 0 : 2));
-
-                StateNext[i] = nextS;
-            }
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            private void CountAt(ref int a, ref int b, int nx, int ny)
-            {
-                if (Wrap == 1)
-                {
-                    if (nx < 0) nx += W; else if (nx >= W) nx -= W;
-                    if (ny < 0) ny += H; else if (ny >= H) ny -= H;
-                }
-                else
-                {
-                    if ((uint)nx >= (uint)W || (uint)ny >= (uint)H) return;
+                    var h = Grid[c];
+                    h.count = 0;
+                    Grid[c] = h;
                 }
 
-                byte ns = StateCur[ny * W + nx];
-                a += (ns == 1) ? 1 : 0;
-                b += (ns == 2) ? 1 : 0;
+                for (int i = 0; i < PosCur.Length; i++)
+                {
+                    int cid = CellOf(PosCur[i], W, CellSize, CellsX, CellsY);
+                    var h = Grid[cid];
+                    h.count++;
+                    Grid[cid] = h;
+                }
             }
         }
 
         [BurstCompile]
-        struct MapToPixelsJob : IJobParallelFor
+        struct FillJobSingle : IJob
         {
-            [ReadOnly] public NativeArray<byte> State;
-            [WriteOnly] public NativeArray<Color32> Pixels;
+            public float2 W;
+            public float CellSize;
+            public int CellsX, CellsY;
+            [ReadOnly] public NativeArray<float2> PosCur;
+            public NativeArray<HashHeader> Grid;
+            public NativeArray<int> Indices;
 
-            public Color32 ColBg, ColA, ColB;
+            public void Execute()
+            {
+                int run = 0;
+                for (int c = 0; c < Grid.Length; c++)
+                {
+                    var h = Grid[c];
+                    h.start = run;
+                    run += h.count;
+                    h.count = 0;
+                    Grid[c] = h;
+                }
+
+                for (int i = 0; i < PosCur.Length; i++)
+                {
+                    int cid = CellOf(PosCur[i], W, CellSize, CellsX, CellsY);
+                    var h = Grid[cid];
+                    int dst = h.start + h.count;
+                    Indices[dst] = i;
+                    h.count++;
+                    Grid[cid] = h;
+                }
+            }
+        }
+
+        [BurstCompile]
+        struct ForceIntegrateJob : IJobParallelFor
+        {
+            public float2 W;
+            public byte Wrap;
+            public float dt, mass, radius, sameAttract, diffRepel, stiffRepel, viscosity, noise, maxSpeed;
+
+            public int CellsX, CellsY;
+            public float CellSize;
+
+            [ReadOnly] public NativeArray<HashHeader> Grid;
+            [ReadOnly] public NativeArray<int> Indices;
+            [ReadOnly] public NativeArray<float2> PosCur;
+            [ReadOnly] public NativeArray<float2> VelCur;
+            [ReadOnly] public NativeArray<byte> Species;
+            [WriteOnly] public NativeArray<float2> PosNext;
+            [WriteOnly] public NativeArray<float2> VelNext;
 
             public void Execute(int i)
             {
-                byte s = State[i];
-                Pixels[i] = (s == 0) ? ColBg : (s == 1 ? ColA : ColB);
+                float2 p = PosCur[i];
+                float2 v = VelCur[i];
+                byte sp = Species[i];
+                float2 f = float2.zero;
+
+                int cx = CellCoord(p.x, W.x, CellSize, CellsX);
+                int cy = CellCoord(p.y, W.y, CellSize, CellsY);
+
+                for (int oy = -1; oy <= 1; oy++)
+                    for (int ox = -1; ox <= 1; ox++)
+                    {
+                        int nx = cx + ox, ny = cy + oy;
+                        if ((uint)nx >= (uint)CellsX || (uint)ny >= (uint)CellsY) continue;
+                        var h = Grid[ny * CellsX + nx];
+
+                        for (int k = 0; k < h.count; k++)
+                        {
+                            int j = Indices[h.start + k];
+                            if (j == i) continue;
+
+                            float2 q = PosCur[j];
+                            byte sj = Species[j];
+                            float2 d = q - p;
+                            float dist = math.length(d) + 1e-6f;
+                            float2 n = d / dist;
+
+                            float target = radius * 2f;
+                            float pen = target - dist;
+                            if (pen > 0f) f -= n * (pen * stiffRepel);
+
+                            float desire = (sp == sj) ? (+sameAttract) : (-diffRepel);
+                            f += n * desire * math.saturate((dist - target) / (target * 3f));
+                        }
+                    }
+
+                f += -viscosity * v;
+                float2 rnd = new float2(hash(i * 9283 + (int)(p.x * 113)), hash(i * 5311 + (int)(p.y * 73)));
+                f += (rnd - 0.5f) * noise;
+
+                v += (f / math.max(1e-3f, mass)) * dt;
+                float spd = math.length(v);
+                if (spd > maxSpeed) v *= (maxSpeed / spd);
+                p += v * dt;
+
+                if (Wrap == 1)
+                {
+                    p.x = Wrap01(p.x, W.x);
+                    p.y = Wrap01(p.y, W.y);
+                }
+                else
+                {
+                    if (p.x < -W.x * 0.5f + radius) { p.x = -W.x * 0.5f + radius; v.x *= -0.3f; }
+                    if (p.x > W.x * 0.5f - radius) { p.x = W.x * 0.5f - radius; v.x *= -0.3f; }
+                    if (p.y < -W.y * 0.5f + radius) { p.y = -W.y * 0.5f + radius; v.y *= -0.3f; }
+                    if (p.y > W.y * 0.5f - radius) { p.y = W.y * 0.5f - radius; v.y *= -0.3f; }
+                }
+
+                PosNext[i] = p;
+                VelNext[i] = v;
             }
+
+            static float Wrap01(float x, float range)
+            {
+                float half = range * 0.5f;
+                if (x < -half) x += range;
+                else if (x > half) x -= range;
+                return x;
+            }
+
+            static int CellCoord(float v, float range, float cell, int cells)
+            {
+                float half = range * 0.5f;
+                int c = (int)math.floor((v + half) / cell);
+                return math.clamp(c, 0, cells - 1);
+            }
+        }
+
+        // ===== Ïú†Ìã∏ =====
+        static int CellOf(float2 p, float2 W, float cell, int cx, int cy)
+        {
+            float2 half = W * 0.5f;
+            int ix = math.clamp((int)math.floor((p.x + half.x) / cell), 0, cx - 1);
+            int iy = math.clamp((int)math.floor((p.y + half.y) / cell), 0, cy - 1);
+            return iy * cx + ix;
+        }
+
+        static Mesh BuildQuad()
+        {
+            var m = new Mesh();
+            m.vertices = new[]
+            {
+                new Vector3(-0.5f, -0.5f, 0),
+                new Vector3(0.5f, -0.5f, 0),
+                new Vector3(0.5f, 0.5f, 0),
+                new Vector3(-0.5f, 0.5f, 0)
+            };
+            m.uv = new[]
+            {
+                new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(1, 1), new Vector2(0, 1)
+            };
+            m.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            m.RecalculateBounds();
+            return m;
+        }
+
+        static float hash(int x) => math.frac(math.sin(x) * 43758.5453f);
+
+        void OnDrawGizmosSelected()
+        {
+            Gizmos.color = new Color(1, 1, 1, 0.2f);
+            Gizmos.DrawWireCube(Vector3.zero, new Vector3(worldSize.x, worldSize.y, 0));
         }
     }
 }
