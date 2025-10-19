@@ -204,7 +204,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   agentCount: 10000
-  radius: 0.08
+  radius: 0.06
   mass: 1
   sameAttract: 0.542
   diffRepel: 0.8

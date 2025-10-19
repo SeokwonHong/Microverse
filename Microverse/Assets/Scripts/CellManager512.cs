@@ -25,11 +25,11 @@ namespace Microverse.Scripts.Simulation
         public float maxSpeed = 3f;
 
         [Header("World")]
-        public Vector2 worldSize = new Vector2(16, 9);
+        public Vector2 worldSize = new Vector2(20, 11.25f);
         public bool wrapEdges = false;
 
         [Header("Time")]
-        public float simHz = 120f;
+        public float simHz = 60f;
         public int substeps = 1;
 
         [Header("Render")]
