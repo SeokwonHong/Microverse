@@ -14,8 +14,8 @@ namespace Microverse.Scripts.Simulation
     public class CellAgents : MonoBehaviour
     {
         [Header("Agents")]
-        public int agentCount = 600;
-        public float radius = 0.08f;
+        public int agentCount = 10000;
+        public float radius = 0.06f;
         public float mass = 1f;
         [Range(0f, 2f)] public float sameAttract = 0.6f;
         [Range(0f, 2f)] public float diffRepel = 0.8f;
