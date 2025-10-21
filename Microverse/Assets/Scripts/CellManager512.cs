@@ -1,9 +1,9 @@
-﻿using Unity.Burst;
-using Unity.Collections;
-using Unity.Jobs;
-using Unity.Mathematics;
-using UnityEngine;
-using UnityEngine.Rendering;
+﻿using Unity.Burst; // C# 을 저수준 네이티브처럼 빠르게. array 를 병렬실행 가능하게함. job.Schedule
+using Unity.Collections; // NativeArray<T> 같이 저수준의 Array 를 쓰겠다.
+using Unity.Jobs; // 실제 병렬 시스템
+using Unity.Mathematics; // float3, float4x4
+using UnityEngine; 
+using UnityEngine.Rendering; // 저수준 단계에서 렌더링 접근
 
 namespace Microverse.Scripts.Simulation
 {
@@ -14,14 +14,14 @@ namespace Microverse.Scripts.Simulation
     public class CellAgents : MonoBehaviour
     {
         [Header("Agents")]
-        public int agentCount = 10000;
+        public int agentCount = 10_000;
         public float radius = 0.06f;
         public float mass = 1f;
-        [Range(0f, 2f)] public float sameAttract = 0.6f;
-        [Range(0f, 2f)] public float diffRepel = 0.8f;
-        [Range(0f, 5f)] public float stiffRepel = 3.0f;
-        [Range(0f, 1f)] public float viscosity = 0.15f;
-        [Range(0f, 2f)] public float noise = 0.25f;
+        [Range(0f, 2f)] public float sameAttract = 0.6f; // 같은 종류의 입자끼리 끌림 정도
+        [Range(0f, 2f)] public float diffRepel = 0.8f; // 다른 종류의 입자끼리 밀어내는 힘
+        [Range(0f, 5f)] public float stiffRepel = 3.0f; // 강한 반발력
+        [Range(0f, 1f)] public float viscosity = 0.15f; // 저항
+        [Range(0f, 2f)] public float noise = 0.25f; // 움직임의 무작위성
         public float maxSpeed = 3f;
 
         [Header("World")]
@@ -29,8 +29,9 @@ namespace Microverse.Scripts.Simulation
         public bool wrapEdges = false;
 
         [Header("Time")]
-        public float simHz = 60f;
-        public int substeps = 1;
+        public float simHz = 60f; // : 1초에 컴퓨터가 물리를 몇번 계산하나 /  FPS: 그 결과를 화면에 몇번 보여주나
+        public int substeps = 1; // 그 1/60 을 몇번에 나눠서 계산하냐: substeps 가 4면 1/60 를 4번에 나눠 계산=물리가 엄청 자연스러워짐=컴퓨터가 힘들어서 뒤질수도 있음
+        public int substeps = 1; // 그 1/60 을 몇번에 나눠서 계산하냐: substeps 가 4면 1/60 를 4번에 나눠 계산=물리가 엄청 자연스러워짐=컴퓨터가 힘들어서 뒤질수도 있음
 
         [Header("Render")]
         public Mesh quadMesh;
