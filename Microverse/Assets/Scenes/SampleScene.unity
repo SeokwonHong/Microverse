@@ -205,18 +205,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   agentCount: 10000
   radius: 0.06
-  mass: 1
-  sameAttract: 0.542
-  diffRepel: 0.8
-  stiffRepel: 3
-  viscosity: 0.15
-  noise: 0.25
+  mass: 0.5
+  sameAttract: 0.05
+  diffRepel: 0.15
+  stiffRepel: 3.51
+  viscosity: 0.128
+  noise: 0.2
   maxSpeed: 3
   worldSize: {x: 16, y: 9}
   wrapEdges: 1
   simHz: 120
   substeps: 1
-  quadMesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
+  quadMesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
   instancedMat: {fileID: 2100000, guid: fa2aad982668b3545bd9b198b0d5433b, type: 2}
   colorBySpecies:
     serializedVersion: 2
