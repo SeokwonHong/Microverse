@@ -30,8 +30,7 @@ namespace Microverse.Scripts.Simulation
 
         [Header("Time")]
         public float simHz = 60f; // : 1초에 컴퓨터가 물리를 몇번 계산하나 /  FPS: 그 결과를 화면에 몇번 보여주나
-        public int substeps = 1; // 그 1/60 을 몇번에 나눠서 계산하냐: substeps 가 4면 1/60 를 4번에 나눠 계산=물리가 엄청 자연스러워짐=컴퓨터가 힘들어서 뒤질수도 있음
-        public int substeps = 1; // 그 1/60 을 몇번에 나눠서 계산하냐: substeps 가 4면 1/60 를 4번에 나눠 계산=물리가 엄청 자연스러워짐=컴퓨터가 힘들어서 뒤질수도 있음
+        public int substeps = 1; // 그 1/60 을 몇번에 나눠서 계산하냐: substeps 가 4면 1/60 를 4번에 나눠 계산=물리
 
         [Header("Render")]
         public Mesh quadMesh;
@@ -44,18 +43,35 @@ namespace Microverse.Scripts.Simulation
         NativeArray<byte> species;
 
         // ===== 공간 해시 =====
-        struct HashHeader { public int start; public int count; }
+        struct HashHeader 
+        { 
+            public int start;  
+            public int count;
+
+            /// <summary>
+            /// 일단 count 로 현재 셀에 들어있는 입자계산하고, indices 에 입자하나하나 넣음.
+            /// 그리고 다음 셀로 넘어가면 몇번째부터 입자 넣어야하는지 모르니까 start 참고함. *그러면 start 는 마지막 위치 +1 이 되야겠지.
+            /// start 위치에 다시 count 개수만큼 차곡차곡 쌓음. 그 마지막 위치 +1 을 또 start 가 기억. 
+            /// 무한반복...
+            /// </summary>
+
+        }
         NativeArray<HashHeader> grid;
+        // 모든 셀의 요소 인덱스를 '연속 메모리'로 납작하게(flat) 저장한 배열
         NativeArray<int> indices;
         int cellsX, cellsY;
-        float cellSize;
+        float cellSize; // 해시 격자의 한칸 크기/ 보통 cellsize 가 입자보다 크거나 같게 설정함.
+
+        // 좀 뜬금없지만, 2d 건 3d 건 사실은 컴퓨터가 배열의 형태로 데이터를 읽는것 뿐임. 컴퓨터는 차원의 개념을 이해를 못함
+        // 그리고 모니터도 사실은 배열여서 rgb 값을 할당하는것임.
 
         // ===== 렌더링 =====
-        Matrix4x4[] matrices;
-        Vector4[] colors;
-        MaterialPropertyBlock mpb;
+        // 그래픽을 10000개의 입자에 하나하나 붗칠하면 컴퓨터 자살함. 그러니까 일관적으로 위치값하고 원하는 색상 요구하면 일괄 적용해주는거임
+        Matrix4x4[] matrices; //위치
+        Vector4[] colors;  //색
+        MaterialPropertyBlock mpb; //위치&색
 
-        float dt;
+        float dt; // 1/60초
 
         void Start()
         {
