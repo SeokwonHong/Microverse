@@ -267,9 +267,10 @@ namespace Microverse.Scripts.Simulation
                 PlayerPos = (player != null ? player.Pos : float2.zero),
                 PlayerRadius = (player != null ? player.radius : 0f),
                 PlayerForce = (playerAttract ? +playerForce : -playerForce),
-                PlayerRange = playerRange, // ★ 추가
-            }.Schedule(agentCount, 128).Complete();
+                PlayerRange = playerRange, 
 
+            }.Schedule(agentCount, 128).Complete();
+            
             // ===== 겹침 보정(PBD) =====
             // 2.1) 예측 위치 스냅샷(posSnap = posNext)
             new CopyJob { Src = posNext, Dst = posSnap }.Schedule(agentCount, 128).Complete();
