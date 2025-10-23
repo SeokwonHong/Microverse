@@ -2,7 +2,7 @@
 using Unity.Collections; // NativeArray<T> 같이 저수준의 Array 를 쓰겠다.
 using Unity.Jobs; // 실제 병렬 시스템
 using Unity.Mathematics; // float3, float4x4
-using UnityEngine; 
+using UnityEngine;
 using UnityEngine.Rendering; // 저수준 단계에서 렌더링 접근
 
 namespace Microverse.Scripts.Simulation
@@ -37,15 +37,25 @@ namespace Microverse.Scripts.Simulation
         public Material instancedMat;
         public Gradient colorBySpecies;
 
+        public PlayerController player;      // 인스펙터에 드래그
+        public bool playerAttract = false;  // true=끌림 / false=밀침
+        public float playerForce = 5f;
+
+        // ▼ 추가: 플레이어 힘이 미치는 최대 거리(멀리선 0)
+        public float playerRange = 1.0f;
+
         // ===== 내부 버퍼 =====
         NativeArray<float2> posCur, posNext;
         NativeArray<float2> velCur, velNext;
         NativeArray<byte> species;
 
+        // ▼ 추가: PBD Jacobi용 스냅샷 버퍼(예측 위치 복사본)
+        NativeArray<float2> posSnap;
+
         // ===== 공간 해시 =====
-        struct HashHeader 
-        { 
-            public int start;  
+        struct HashHeader
+        {
+            public int start;
             public int count;
 
             /// <summary>
@@ -73,6 +83,10 @@ namespace Microverse.Scripts.Simulation
 
         float dt; // 1/60초
 
+        // ▼ 추가: PBD 반복 횟수(업계 관행: 2~4)
+        [Header("Solver")]
+        [Range(0, 8)] public int solveIterations = 2;
+
         void Start()
         {
             Application.targetFrameRate = 120;
@@ -89,6 +103,9 @@ namespace Microverse.Scripts.Simulation
             velCur = new NativeArray<float2>(agentCount, Allocator.Persistent);
             velNext = new NativeArray<float2>(agentCount, Allocator.Persistent);
             species = new NativeArray<byte>(agentCount, Allocator.Persistent);
+
+            // ▼ 추가: 스냅샷 버퍼
+            posSnap = new NativeArray<float2>(agentCount, Allocator.Persistent);
 
             cellSize = math.max(radius * 2f, 0.05f);
             cellsX = math.max(1, (int)math.ceil(worldSize.x / cellSize));
@@ -123,6 +140,12 @@ namespace Microverse.Scripts.Simulation
                 );
                 colorBySpecies = g;
             }
+
+            if (player != null)
+            {
+                player.worldSize = worldSize;
+                player.wrapEdges = wrapEdges;
+            }
         }
 
         void OnDestroy()
@@ -134,6 +157,9 @@ namespace Microverse.Scripts.Simulation
             if (species.IsCreated) species.Dispose();
             if (grid.IsCreated) grid.Dispose();
             if (indices.IsCreated) indices.Dispose();
+
+            // ▼ 추가
+            if (posSnap.IsCreated) posSnap.Dispose();
         }
 
         void Update()
@@ -172,12 +198,24 @@ namespace Microverse.Scripts.Simulation
                     ShadowCastingMode.Off, false, 0, null,
                     LightProbeUsage.Off, null);
             }
+
+            if (player != null && player.enablePlayer)
+            {
+                var P = new Vector3(player.Pos.x, player.Pos.y, 0f);
+                float d = player.radius * 2f;
+                var M = Matrix4x4.TRS(P, Quaternion.identity, new Vector3(d, d, 1f));
+
+                var pb = new MaterialPropertyBlock();
+                pb.SetColor("_Color", Color.white);
+                Graphics.DrawMesh(quadMesh, M, instancedMat, 0, null, 0, pb,
+                    ShadowCastingMode.Off, false, null, LightProbeUsage.Off, null);
+            }
         }
 
         // ====== 시뮬 ======
         void Step()
         {
-            // 1) 공간 해시(싱글 스레드 안정 버전)
+            // 1) 공간 해시(싱글 스레드 안정 버전) — 현재 위치(posCur) 기준
             new CountJobSingle
             {
                 W = worldSize,
@@ -199,7 +237,7 @@ namespace Microverse.Scripts.Simulation
                 Indices = indices
             }.Run();
 
-            // 2) Force & Integrate
+            // 2) Force & Integrate → 예측 위치/속도(PosNext/VelNext)에 기록
             new ForceIntegrateJob
             {
                 W = worldSize,
@@ -223,11 +261,71 @@ namespace Microverse.Scripts.Simulation
                 VelCur = velCur,
                 PosNext = posNext,
                 VelNext = velNext,
-                Species = species
+                Species = species,
+
+                PlayerEnabled = (byte)(player != null && player.enablePlayer ? 1 : 0),
+                PlayerPos = (player != null ? player.Pos : float2.zero),
+                PlayerRadius = (player != null ? player.radius : 0f),
+                PlayerForce = (playerAttract ? +playerForce : -playerForce),
+                PlayerRange = playerRange, // ★ 추가
             }.Schedule(agentCount, 128).Complete();
 
-            // 3) 버퍼 스왑
-            (posCur, posNext) = (posNext, posCur);
+            // ===== 겹침 보정(PBD) =====
+            // 2.1) 예측 위치 스냅샷(posSnap = posNext)
+            new CopyJob { Src = posNext, Dst = posSnap }.Schedule(agentCount, 128).Complete();
+
+            // 2.2) 스냅샷(=이웃 참조용) 기준으로 다시 그리드 빌드
+            new CountJobSingle
+            {
+                W = worldSize,
+                CellSize = cellSize,
+                CellsX = cellsX,
+                CellsY = cellsY,
+                PosCur = posSnap,   // ★ 스냅샷 기준
+                Grid = grid
+            }.Run();
+
+            new FillJobSingle
+            {
+                W = worldSize,
+                CellSize = cellSize,
+                CellsX = cellsX,
+                CellsY = cellsY,
+                PosCur = posSnap,   // ★ 스냅샷 기준
+                Grid = grid,
+                Indices = indices
+            }.Run();
+
+            // 2.3) Jacobi 투영 반복: read=posSnap, write=posNext → 스왑
+            for (int it = 0; it < math.max(1, solveIterations); it++)
+            {
+                new ProjectNoOverlapJob
+                {
+                    W = worldSize,
+                    radius = radius,
+                    CellsX = cellsX,
+                    CellsY = cellsY,
+                    CellSize = cellSize,
+
+                    Grid = grid,
+                    Indices = indices,
+
+                    PosRead = posSnap,  // 이웃 참조용(읽기 전용 스냅샷)
+                    PosWrite = posNext  // 내가 보정할 위치(쓰기)
+                }.Schedule(agentCount, 128).Complete();
+
+                // 다음 반복을 위해 스냅샷↔작성 버퍼 스왑
+                (posSnap, posNext) = (posNext, posSnap);
+
+                // 스냅샷 기준으로 이웃 업데이트가 더 필요하면 Count/Fill을 매 반복마다 갱신 가능.
+                // 보통 1회 스냅샷으로도 충분. 필요 시 여기에서 Count/Fill 재호출.
+            }
+
+            // 반복이 끝나면, 최종 위치가 posSnap에 있음(마지막에 핑퐁했기 때문)
+            // posCur = 최종 위치가 되도록 스왑
+            (posCur, posSnap) = (posSnap, posCur);
+
+            // 속도는 ForceIntegrate에서 계산된 VelNext를 채택
             (velCur, velNext) = (velNext, velCur);
         }
 
@@ -312,6 +410,13 @@ namespace Microverse.Scripts.Simulation
             [WriteOnly] public NativeArray<float2> PosNext;
             [WriteOnly] public NativeArray<float2> VelNext;
 
+            // ▼ 추가: 플레이어 파라미터
+            public byte PlayerEnabled;   // 1/0
+            public float2 PlayerPos;
+            public float PlayerRadius;
+            public float PlayerForce;     // +끌림 / -밀침
+            public float PlayerRange;     // 최대 영향 범위
+
             public void Execute(int i)
             {
                 float2 p = PosCur[i];
@@ -349,6 +454,32 @@ namespace Microverse.Scripts.Simulation
                         }
                     }
 
+                // ▼ 플레이어 영향 (범위 기반 감쇠)
+                if (PlayerEnabled == 1)
+                {
+                    float2 dp = PlayerPos - p;
+                    float dist = math.length(dp) + 1e-6f;
+                    float2 n = dp / dist;
+
+                    float contact = PlayerRadius + radius;
+
+                    // 0) 범위 밖이면 영향 없음
+                    if (dist <= PlayerRange)
+                    {
+                        // 겹치면 충돌성 반발(살짝 완화)
+                        float pen = contact - dist;
+                        if (pen > 0f)
+                            f -= n * (pen * stiffRepel * 0.8f);
+
+                        // contact 지점에서 최대, PlayerRange에서 0
+                        float denom = math.max(1e-5f, PlayerRange - contact);
+                        float w = math.saturate((PlayerRange - dist) / denom);
+                        // 곡선이 더 부드럽길 원하면 w = w*w;
+
+                        f += n * (PlayerForce * w);
+                    }
+                }
+
                 f += -viscosity * v;
                 float2 rnd = new float2(hash(i * 9283 + (int)(p.x * 113)), hash(i * 5311 + (int)(p.y * 73)));
                 f += (rnd - 0.5f) * noise;
@@ -381,6 +512,79 @@ namespace Microverse.Scripts.Simulation
                 if (x < -half) x += range;
                 else if (x > half) x -= range;
                 return x;
+            }
+
+            static int CellCoord(float v, float range, float cell, int cells)
+            {
+                float half = range * 0.5f;
+                int c = (int)math.floor((v + half) / cell);
+                return math.clamp(c, 0, cells - 1);
+            }
+        }
+
+        // ▼ 추가: 예측 위치 스냅샷 복사
+        [BurstCompile]
+        struct CopyJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<float2> Src;
+            public NativeArray<float2> Dst;
+
+            public void Execute(int i) => Dst[i] = Src[i];
+        }
+
+        // ▼ 추가: PBD 위치 투영(겹침 제거) — Jacobi: read(스냅샷), write(작업 버퍼)
+        [BurstCompile]
+        struct ProjectNoOverlapJob : IJobParallelFor
+        {
+            public float2 W;
+            public float radius;
+            public int CellsX, CellsY;
+            public float CellSize;
+
+            [ReadOnly] public NativeArray<HashHeader> Grid;
+            [ReadOnly] public NativeArray<int> Indices;
+            [ReadOnly] public NativeArray<float2> PosRead;  // 이웃 참조(스냅샷)
+            public NativeArray<float2> PosWrite;            // 내 위치 보정
+
+            public void Execute(int i)
+            {
+                float2 p = PosWrite[i];
+
+                int cx = CellCoord(p.x, W.x, CellSize, CellsX);
+                int cy = CellCoord(p.y, W.y, CellSize, CellsY);
+
+                for (int oy = -1; oy <= 1; oy++)
+                    for (int ox = -1; ox <= 1; ox++)
+                    {
+                        int nx = cx + ox, ny = cy + oy;
+                        if ((uint)nx >= (uint)CellsX || (uint)ny >= (uint)CellsY) continue;
+                        var h = Grid[ny * CellsX + nx];
+
+                        for (int k = 0; k < h.count; k++)
+                        {
+                            int j = Indices[h.start + k];
+                            if (j == i) continue;
+
+                            float2 q = PosRead[j]; // 이웃은 스냅샷(읽기전용)
+                            float2 d = p - q;
+                            float dist = math.length(d) + 1e-6f;
+                            float target = radius * 2f;
+
+                            float pen = target - dist;
+                            if (pen > 0f)
+                            {
+                                float2 n = d / dist;
+                                // 양쪽 반씩 대신, 내 쪽만 0.5 비율로 이동(안정적)
+                                p += n * (pen * 0.5f);
+                            }
+                        }
+                    }
+
+                // 경계 보정(랩 대신 클램프; 랩 쓰려면 Wrap01 사용)
+                p.x = math.clamp(p.x, -W.x * 0.5f + radius, W.x * 0.5f - radius);
+                p.y = math.clamp(p.y, -W.y * 0.5f + radius, W.y * 0.5f - radius);
+
+                PosWrite[i] = p;
             }
 
             static int CellCoord(float v, float range, float cell, int cells)
