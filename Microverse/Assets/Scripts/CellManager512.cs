@@ -76,11 +76,11 @@ namespace Microverse.Scripts.Simulation
         void Start()
         {
             Application.targetFrameRate = 120;
-            dt = 1f / math.max(30f, simHz);
+            dt = 1f / math.max(30f, simHz); // 최소 시뮬레이션 횟수보장: 30회
 
-            if (quadMesh == null) quadMesh = BuildQuad();
-            if (instancedMat == null) instancedMat = new Material(Shader.Find("Unlit/Color"));
-            mpb = new MaterialPropertyBlock();
+            if (quadMesh == null) quadMesh = BuildQuad(); //quad 없으면 생성
+            if (instancedMat == null) instancedMat = new Material(Shader.Find("Unlit/Color")); //material 없으면 생성
+            mpb = new MaterialPropertyBlock(); // 세포별 색상을 셰이더로 넘길 프로퍼티 블록
             matrices = new Matrix4x4[1023];
             colors = new Vector4[1023];
 
