@@ -52,6 +52,9 @@ namespace Microverse.Scripts.Simulation
         // ▼ 추가: PBD Jacobi용 스냅샷 버퍼(예측 위치 복사본)
         NativeArray<float2> posSnap;
 
+        // ▼ 추가: PBD 전 "예측 위치" 스냅샷(velocity matching 용)
+        NativeArray<float2> posPred;
+
         // ===== 공간 해시 =====
         struct HashHeader
         {
@@ -87,6 +90,9 @@ namespace Microverse.Scripts.Simulation
         [Header("Solver")]
         [Range(0, 8)] public int solveIterations = 2;
 
+        // ▼ 추가: PBD 이후 속도를 보정된 위치변화로 재계산(점착 강도)
+        [Range(0f, 1f)] public float stickiness = 1.0f; // 1=완전 점착, 0=기존 속도 유지
+
         void Start()
         {
             Application.targetFrameRate = 120;
@@ -106,6 +112,9 @@ namespace Microverse.Scripts.Simulation
 
             // ▼ 추가: 스냅샷 버퍼
             posSnap = new NativeArray<float2>(agentCount, Allocator.Persistent);
+
+            // ▼ 추가: 예측 위치 스냅샷 버퍼(velocity matching 용)
+            posPred = new NativeArray<float2>(agentCount, Allocator.Persistent);
 
             cellSize = math.max(radius * 2f, 0.05f);
             cellsX = math.max(1, (int)math.ceil(worldSize.x / cellSize));
@@ -160,6 +169,9 @@ namespace Microverse.Scripts.Simulation
 
             // ▼ 추가
             if (posSnap.IsCreated) posSnap.Dispose();
+
+            // ▼ 추가
+            if (posPred.IsCreated) posPred.Dispose();
         }
 
         void Update()
@@ -267,10 +279,13 @@ namespace Microverse.Scripts.Simulation
                 PlayerPos = (player != null ? player.Pos : float2.zero),
                 PlayerRadius = (player != null ? player.radius : 0f),
                 PlayerForce = (playerAttract ? +playerForce : -playerForce),
-                PlayerRange = playerRange, 
+                PlayerRange = playerRange,
 
             }.Schedule(agentCount, 128).Complete();
-            
+
+            // ▼ 추가: PBD 전 "예측 위치" 스냅샷 저장(velocity matching 기준)
+            new CopyJob { Src = posNext, Dst = posPred }.Schedule(agentCount, 128).Complete();
+
             // ===== 겹침 보정(PBD) =====
             // 2.1) 예측 위치 스냅샷(posSnap = posNext)
             new CopyJob { Src = posNext, Dst = posSnap }.Schedule(agentCount, 128).Complete();
@@ -328,6 +343,16 @@ namespace Microverse.Scripts.Simulation
 
             // 속도는 ForceIntegrate에서 계산된 VelNext를 채택
             (velCur, velNext) = (velNext, velCur);
+
+            // ▼ 추가: PBD 보정 이후 속도를 '보정된 위치 변화'로 재계산(점착/velocity matching)
+            new RecomputeVelJob
+            {
+                Prev = posPred,     // PBD 전(예측) 위치
+                Curr = posCur,      // PBD 후(최종) 위치
+                PrevVel = velCur,   // 현재 속도(여기에 덮어씀)
+                dt = dt,
+                Stickiness = stickiness
+            }.Schedule(agentCount, 128).Complete();
         }
 
         // ===== JOBS =====
@@ -593,6 +618,27 @@ namespace Microverse.Scripts.Simulation
                 float half = range * 0.5f;
                 int c = (int)math.floor((v + half) / cell);
                 return math.clamp(c, 0, cells - 1);
+            }
+        }
+
+        // ▼ 추가: PBD 이후 속도 재계산(velocity matching / 점착)
+        [BurstCompile]
+        struct RecomputeVelJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<float2> Prev;   // PBD 전 위치(예측)
+            [ReadOnly] public NativeArray<float2> Curr;   // PBD 후 최종 위치
+            public NativeArray<float2> PrevVel;           // velCur 덮어쓰기
+            public float dt;
+            public float Stickiness; // 0..1
+
+            public void Execute(int i)
+            {
+                float invDt = 1f / math.max(1e-6f, dt);
+                float2 vFromProjection = (Curr[i] - Prev[i]) * invDt;
+
+                // Stickiness=1이면 '완전 점착' — 보정으로 만들어진 속도를 100% 채택
+                // Stickiness=0이면 기존 속도 유지
+                PrevVel[i] = math.lerp(PrevVel[i], vFromProjection, Stickiness);
             }
         }
 
