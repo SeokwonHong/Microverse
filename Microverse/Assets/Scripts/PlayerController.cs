@@ -25,7 +25,7 @@ namespace Microverse.Scripts.Simulation
 
         void Update()
         {
-            if (!enablePlayer) return;
+            if (!enablePlayer) return;//f
 
             // 구 입력 시스템(axes). 새 Input System이면 여기만 교체
             float2 mv = new float2(Input.GetAxisRaw("Horizontal"),
