@@ -190,7 +190,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &319645096
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -206,7 +206,7 @@ MonoBehaviour:
   agentCount: 10000
   radius: 0.03
   mass: 0.5
-  sameAttract: 1.11
+  sameAttract: 0.87
   diffRepel: 0.91
   stiffRepel: 3.51
   viscosity: 0.453
@@ -252,6 +252,16 @@ MonoBehaviour:
   playerAttract: 0
   playerForce: 5
   playerRange: 1
+  playerEatRadius: 0.3
+  growthPerEat: 0.01
+  maxPlayerRadius: 0.8
+  wbcChaseForce: 2.5
+  wbcLatchRadius: 0.1
+  wbcLatchSpring: 25
+  wbcDPS: 4
+  wbcMaxLatched: 6
+  latchTTLSeconds: 6
+  shakeBreakSpeed: 2
   solveIterations: 2
 --- !u!64 &319645097
 MeshCollider:
@@ -507,10 +517,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   enablePlayer: 1
-  radius: 0.1
+  radius: 0.02
   speed: 4
   wrapEdges: 0
   worldSize: {x: 20, y: 11.25}
+  health: 10000
+  maxHealth: 100
 --- !u!4 &1224359572
 Transform:
   m_ObjectHideFlags: 0
