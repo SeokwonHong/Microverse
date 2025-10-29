@@ -49,9 +49,10 @@ namespace Microverse.Scripts.Simulation.Runtime.Data
         public NativeArray<byte> state;       // 0=Alive 1=Dead 2=Latched
         public NativeArray<float2> latchOffset; // 라치된 백혈구 오프셋
         public NativeArray<float> latchTTL;    // 라치 잔여
-
         public NativeArray<float2> posSnap;     // PBD
 
+        public NativeArray<float> squash;   // 0..1
+        public NativeArray<float2> squashN;
         public void Dispose()
         {
             if (posCur.IsCreated) posCur.Dispose();
@@ -63,6 +64,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Data
             if (latchOffset.IsCreated) latchOffset.Dispose();
             if (latchTTL.IsCreated) latchTTL.Dispose();
             if (posSnap.IsCreated) posSnap.Dispose();
+
+            if (squash.IsCreated) squash.Dispose();
+            if (squashN.IsCreated) squashN.Dispose();
         }
     }
 }

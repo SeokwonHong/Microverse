@@ -118,6 +118,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             B.latchOffset = new NativeArray<float2>(agentCount, Allocator.Persistent);
             B.latchTTL = new NativeArray<float>(agentCount, Allocator.Persistent);
             B.posSnap = new NativeArray<float2>(agentCount, Allocator.Persistent);
+            B.squash = new NativeArray<float>(agentCount, Allocator.Persistent);
+            B.squashN = new NativeArray<float2>(agentCount, Allocator.Persistent);
 
             eatenQueue = new NativeQueue<int>(Allocator.Persistent);
             latchQueue = new NativeQueue<int>(Allocator.Persistent);
@@ -269,6 +271,18 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
                 (B.posSnap, B.posNext) = (B.posNext, B.posSnap); // ping-pong
             }
+            new SquashFromDeltaJob
+            {
+                posBefore = B.posCur,     // 이전 확정 위치
+                posAfter = B.posSnap,    // 이번 확정(스왑 전)
+                squash = B.squash,
+                squashN = B.squashN,
+                radius = radius,
+                decay = 0.90f,
+                gain = 0.50f
+            }.Schedule(agentCount, 128).Complete();
+
+
 
             // 최종 확정
             (B.posCur, B.posSnap) = (B.posSnap, B.posCur);
@@ -336,10 +350,22 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 if (B.state[i] == 1) continue; // Dead skip
 
                 Vector3 p = new Vector3(B.posCur[i].x, B.posCur[i].y, 0f);
-                float d = radius * 2f;
-                matrices[countInBatch] = Matrix4x4.TRS(p, Quaternion.identity, new Vector3(d, d, 1f));
 
-                // 라치된 백혈구 강조색
+                //  REPLACE: 말캉 눌림(TRS)
+                float s = math.saturate(B.squash[i] * 0.35f); // squashMax: 0.25~0.4 권장
+                s = math.saturate(s * 8.0f);
+                float d = radius * 2f;
+                float minor = d * (1f - s);         // 압축축
+                float major = d * (1f + s);         // 팽창축 (과하면 clamp 가능)
+
+                float2 nrm = B.squashN[i];
+                if (math.lengthsq(nrm) < 1e-6f) nrm = new float2(0, 1);
+                float2 tan = new float2(-nrm.y, nrm.x); // 타원 장축(접선)에 정렬
+                Quaternion rot = Quaternion.FromToRotation(Vector3.right, new Vector3(tan.x, tan.y, 0));
+
+                matrices[countInBatch] = Matrix4x4.TRS(p, rot, new Vector3(major, minor, 1f));
+
+                // 색은 기존 그대로
                 Color c = (B.state[i] == 2 && B.species[i] == 1)
                     ? new Color(1f, 0.4f, 0.4f, 1f)
                     : colorBySpecies.Evaluate(B.species[i]);
