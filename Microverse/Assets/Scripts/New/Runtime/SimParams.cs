@@ -30,6 +30,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Data
         public float wbcLatchSpring;
         public float shakeBreakSpeed;
 
+        public byte wbcEnabled;
+
         public uint tick;
     }
-}
+  }

@@ -113,7 +113,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
                 }
 
                 // ¹éÇ÷±¸
-                if (sp == 1)
+                if (sp == 1 && P.wbcEnabled == 1)
                 {
                     float2 dp = P.playerPos - p;
                     float dist = math.length(dp) + 1e-6f;

@@ -7,7 +7,7 @@ namespace Microverse.Scripts.Simulation
     {
         [Header("Player")]
         public bool enablePlayer = true;
-        public float radius = 0.2f;
+        public float radius = 0.001f;
         public float speed = 6f;
         public bool wrapEdges = false;
 
@@ -15,8 +15,8 @@ namespace Microverse.Scripts.Simulation
         public Vector2 worldSize = new Vector2(20, 11.25f);
 
         [Header("Health")]
-        public float health = 100f;
-        public float maxHealth = 100f;
+        public float health = 10000f;
+        public float maxHealth = 10000f;
 
         // ¦¡¦¡ À§Ä¡
         private float2 _pos;

@@ -62,6 +62,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
         [Header("Solver")]
         [Range(0, 8)] public int solveIterations = 2;
 
+        [Header("Gameplay Toggles")]
+        public bool enableWBC = true;
+
         // ===== 내부 상태 =====
         Buffers B;
         GridData G;
@@ -234,6 +237,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 playerRadius = (player != null) ? player.radius : 0f,
                 playerForce = (playerAttract ? +playerForce : -playerForce),
                 playerRange = playerRange,
+
+                wbcEnabled = (byte)(enableWBC ? 1 : 0),
 
                 playerEatRadius = playerEatRadius,
                 wbcChaseForce = wbcChaseForce,
