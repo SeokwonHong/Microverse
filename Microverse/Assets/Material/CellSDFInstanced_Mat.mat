@@ -103,6 +103,9 @@ Material:
     - _ClearCoatSmoothness: 0
     - _Cull: 2
     - _Cutoff: 0.5
+    - _DentMinOuter: 0.844
+    - _DentSharpness: 21.1
+    - _DentStrength: 0.665
     - _DetailAlbedoMapScale: 1
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
@@ -114,18 +117,18 @@ Material:
     - _GlossyReflections: 0
     - _GlowStrength: 0.38
     - _Metallic: 0
-    - _NucleusRatio: 2.31
+    - _NucleusRatio: 18.71
     - _OcclusionStrength: 1
     - _OrganelleDensity: 15.31
     - _OrganelleSize: 9.31
     - _OrganelleSoft: 2.15
     - _Parallax: 0.005
-    - _PulseAmp: -0
-    - _PulseFreq: 8.7
+    - _PulseAmp: 0.03
+    - _PulseFreq: 1.03
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _RimNoiseAmp: 0.09
-    - _RimNoiseFreq: 62.4
+    - _RimNoiseFreq: 63.48
     - _RimThickness: 0.59
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
@@ -134,7 +137,7 @@ Material:
     - _SrcBlendAlpha: 1
     - _Surface: 0
     - _WobbleAmp: -0.06
-    - _WobbleFreq: 6
+    - _WobbleFreq: 7
     - _WorkflowMode: 1
     - _ZWrite: 1
     m_Colors:
@@ -145,7 +148,7 @@ Material:
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _GlowColor: {r: 0, g: 0.28627443, b: 1, a: 1}
     - _NucleusColor: {r: 0, g: 0.13725495, b: 1, a: 1}
-    - _OrganelleColor: {r: 0.9198113, g: 0.998487, b: 1, a: 1}
+    - _OrganelleColor: {r: 0.9575472, g: 1, b: 1, a: 1}
     - _RimColor: {r: 0, g: 0, b: 0, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
