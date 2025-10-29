@@ -395,6 +395,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
         void Draw()
         {
             int countInBatch = 0;
+
             for (int i = 0; i < agentCount; i++)
             {
                 if (B.state[i] == 1) continue;
@@ -406,6 +407,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 float s = math.saturate(B.squash[i] * 0.60f); // 0.35 → 0.60 (스케일 업)
                 s = math.saturate(s * 3.0f);                  // 2.0 → 3.0 (과장 업)
 
+
+                const float SQUASH_VISUAL_MAX = 0.2f;
+                s = math.min(s, SQUASH_VISUAL_MAX);
                 float d = radius * 2f;
                 float minor = d * (1f - s);
                 float major = d * (1f + s);
