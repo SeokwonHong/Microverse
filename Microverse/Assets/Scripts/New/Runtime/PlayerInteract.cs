@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using Unity.Mathematics;
 
+//플레이어-세포 힘 수학 계산
+
 namespace Microverse.Scripts.Simulation.Runtime.Modules
 {
     internal static class PlayerInteract
