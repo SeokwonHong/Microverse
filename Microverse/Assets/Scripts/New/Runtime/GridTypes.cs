@@ -1,3 +1,7 @@
+//Array 에 각 셀에 세포들의 개수들을 차례대로 넣음.
+
+
+
 using Unity.Collections;
 using Unity.Mathematics;
 

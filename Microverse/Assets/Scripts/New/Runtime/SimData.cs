@@ -1,4 +1,9 @@
-using Unity.Collections;
+// CellSimulation 에도 변수 선언이 있긴 한데, 그건 읽기 용이고, 여기서 그 값을 읽어서 다음 프레임에 적용
+
+
+
+
+using Unity.Collections;  
 using Unity.Mathematics;
 
 namespace Microverse.Scripts.Simulation.Runtime.Data

@@ -1,3 +1,8 @@
+// 각 세포들의 밀고 당기는 기본적인 힘의 정의
+
+
+
+
 using System.Runtime.CompilerServices;
 using Unity.Mathematics;
 
