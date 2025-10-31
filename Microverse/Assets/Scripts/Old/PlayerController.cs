@@ -68,6 +68,9 @@ namespace Microverse.Scripts.Simulation
                 enablePlayer = false;
                 Debug.Log(" Player died");
             }
+
+            transform.localScale = Vector3.one * (radius * 2f);
+
         }
 
         // ── 외부에서 위치 변경하고 싶을 때 쓰는 안전 API

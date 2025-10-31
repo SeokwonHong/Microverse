@@ -1,4 +1,4 @@
-using Unity.Burst;
+ï»¿using Unity.Burst;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
@@ -14,7 +14,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
     public class CellSimulation : MonoBehaviour
     {
-      
+        const byte SPEC_CELL = 0;     // ì¼ë°˜ ì„¸í¬
+        const byte SPEC_WBC = 1;     // ë°±í˜ˆêµ¬
+        const byte SPEC_BACT = 2;   // ë°•í…Œë¦¬ì•„(í”Œë ˆì´ì–´ ì¢…)
 
         [Header("Agents")]
         public int agentCount = 10_000;
@@ -37,7 +39,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
         [Header("Render")]
         public Mesh quadMesh;
-        public Material instancedMat; // "Unlit/CellSDFInstanced_Advanced" ±ÇÀå
+        public Material instancedMat; // "Unlit/CellSDFInstanced_Advanced" Â±Ã‡Ã€Ã¥
         public Gradient colorBySpecies;
 
         [Header("Player")]
@@ -65,7 +67,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
         [Header("Gameplay Toggles")]
         public bool enableWBC = true;
 
-        // ===== ³»ºÎ »óÅÂ =====
+        // ===== Â³Â»ÂºÃ Â»Ã³Ã…Ã‚ =====
         Buffers B;
         GridData G;
         SimParams P;
@@ -74,20 +76,20 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
         NativeQueue<int> eatenQueue, latchQueue, unlatchQueue;
 
-        // ·»´õ Ä³½Ã
+        // Â·Â»Â´Ãµ Ã„Â³Â½Ãƒ
         Matrix4x4[] matrices;
         Vector4[] colors;
         MaterialPropertyBlock mpb;
 
-        // µ§Æ® È÷½ºÅä±×·¥(ÇÁ·¹ÀÓ ÀÓ½Ã)
+        // ÂµÂ§Ã†Â® ÃˆÃ·Â½ÂºÃ…Ã¤Â±Ã—Â·Â¥(Ã‡ÃÂ·Â¹Ã€Ã“ Ã€Ã“Â½Ãƒ)
         NativeArray<float> dentHist;
 
-        // µ§Æ® per-batch Ä³½Ã
+        // ÂµÂ§Ã†Â® per-batch Ã„Â³Â½Ãƒ
         Vector4[] dentDir0Arr, dentDir1Arr, dentDir2Arr, dentDir3Arr;
         float[] dentAmp0Arr, dentAmp1Arr, dentAmp2Arr, dentAmp3Arr;
 
 
-        NativeArray<float> phasePerAgent;   // ±æÀÌ = agentCount
+        NativeArray<float> phasePerAgent;   // Â±Ã¦Ã€ÃŒ = agentCount
         Vector4[] phaseVecBatch;
 
         void Start()
@@ -131,7 +133,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             dentAmp2Arr = new float[1023];
             dentAmp3Arr = new float[1023];
 
-            // ===== ¹öÆÛ ÇÒ´ç =====
+            // ===== Â¹Ã¶Ã†Ã› Ã‡Ã’Â´Ã§ =====
             B.posCur = new NativeArray<float2>(agentCount, Allocator.Persistent);
             B.posNext = new NativeArray<float2>(agentCount, Allocator.Persistent);
             B.velCur = new NativeArray<float2>(agentCount, Allocator.Persistent);
@@ -142,11 +144,11 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             B.latchTTL = new NativeArray<float>(agentCount, Allocator.Persistent);
             B.posSnap = new NativeArray<float2>(agentCount, Allocator.Persistent);
 
-            // ¡Ú ½ºÄõ½Ã
+            // Â¡Ãš Â½ÂºÃ„ÃµÂ½Ãƒ
             B.squash = new NativeArray<float>(agentCount, Allocator.Persistent);
             B.squashN = new NativeArray<float2>(agentCount, Allocator.Persistent);
 
-            // ¡Ú µ§Æ® °á°ú
+            // Â¡Ãš ÂµÂ§Ã†Â® Â°Ã¡Â°Ãº
             B.dentDir0 = new NativeArray<float2>(agentCount, Allocator.Persistent);
             B.dentDir1 = new NativeArray<float2>(agentCount, Allocator.Persistent);
             B.dentDir2 = new NativeArray<float2>(agentCount, Allocator.Persistent);
@@ -162,7 +164,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             latchQueue = new NativeQueue<int>(Allocator.Persistent);
             unlatchQueue = new NativeQueue<int>(Allocator.Persistent);
 
-            // ===== ±×¸®µå =====
+            // ===== Â±Ã—Â¸Â®ÂµÃ¥ =====
             G.worldSize = worldSize;
             G.cellSize = math.max(radius * 2f, 0.05f);
             G.cellsX = math.max(1, (int)math.ceil(worldSize.x / G.cellSize));
@@ -170,7 +172,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             G.grid = new NativeArray<HashHeader>(G.cellsX * G.cellsY, Allocator.Persistent);
             G.indices = new NativeArray<int>(agentCount, Allocator.Persistent);
 
-            // ===== ¿¡ÀÌÀüÆ® ÃÊ±âÈ­ =====
+            // ===== Â¿Â¡Ã€ÃŒÃ€Ã¼Ã†Â® ÃƒÃŠÂ±Ã¢ÃˆÂ­ =====
             var rng = new Unity.Mathematics.Random(12345);
             for (int i = 0; i < agentCount; i++)
             {
@@ -188,6 +190,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 B.squashN[i] = new float2(0, 1);
             }
 
+            B.species[0] = SPEC_BACT;
+            B.posCur[0] = float2.zero;
+
             if (player != null)
             {
                 player.worldSize = worldSize;
@@ -198,7 +203,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
             phasePerAgent = new NativeArray<float>(agentCount, Allocator.Persistent);
             phaseVecBatch = new Vector4[1023];
 
-            // ¿¡ÀÌÀüÆ®º° ·£´ı À§»ó 0..1
+            // Â¿Â¡Ã€ÃŒÃ€Ã¼Ã†Â®ÂºÂ° Â·Â£Â´Ã½ Ã€Â§Â»Ã³ 0..1
             var rngPhase = new Unity.Mathematics.Random(0xBEEF1234);
             for (int i = 0; i < agentCount; i++)
                 phasePerAgent[i] = rngPhase.NextFloat();
@@ -257,7 +262,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
         void Step()
         {
-            // 1) °ø°£ ÇØ½Ã
+            // 1) Â°Ã¸Â°Â£ Ã‡Ã˜Â½Ãƒ
             new CountJobSingle { W = worldSize, CellSize = G.cellSize, CellsX = G.cellsX, CellsY = G.cellsY, PosCur = B.posCur, Grid = G.grid }.Run();
             new FillJobSingle { W = worldSize, CellSize = G.cellSize, CellsX = G.cellsX, CellsY = G.cellsY, PosCur = B.posCur, Grid = G.grid, Indices = G.indices }.Run();
 
@@ -283,7 +288,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 Unlatched = unlatchQueue.AsParallelWriter(),
             }.Schedule(agentCount, 128).Complete();
 
-            // 2-1) Æò±Õ ¼Óµµ Á¦°Å
+            // 2-1) Ã†Ã²Â±Ã• Â¼Ã“ÂµÂµ ÃÂ¦Â°Ã…
             float2 vAvg = 0;
             for (int i = 0; i < agentCount; i++) vAvg += B.velNext[i];
             vAvg /= math.max(1, agentCount);
@@ -344,15 +349,15 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 squash = B.squash,
                 squashN = B.squashN,
                 radius = radius,
-                decay = 0.98f, // ¡ç º¹¿ø ´À¸®°Ô(´õ ¸»Ä²)
-                gain = 1.15f  // ¡ç ´­¸² ´õ Å©°Ô
+                decay = 0.98f, // Â¡Ã§ ÂºÂ¹Â¿Ã¸ Â´Ã€Â¸Â®Â°Ã”(Â´Ãµ Â¸Â»Ã„Â²)
+                gain = 1.15f  // Â¡Ã§ Â´Â­Â¸Â² Â´Ãµ Ã…Â©Â°Ã”
             }.Schedule(agentCount, 128).Complete();
 
-            // È®Á¤ ½º¿Ò (ÇÑ ¹ø¸¸)
+            // ÃˆÂ®ÃÂ¤ Â½ÂºÂ¿Ã’ (Ã‡Ã‘ Â¹Ã¸Â¸Â¸)
             (B.posCur, B.posSnap) = (B.posSnap, B.posCur);
             (B.velCur, B.velNext) = (B.velNext, B.velCur);
 
-            // ===== ÀÌº¥Æ® Ã³¸® (»ı·«: ³× ±âÁ¸ ÄÚµå¿Í µ¿ÀÏ) =====
+            // ===== Ã€ÃŒÂºÂ¥Ã†Â® ÃƒÂ³Â¸Â® (Â»Ã½Â·Â«: Â³Ã— Â±Ã¢ÃÂ¸ Ã„ÃšÂµÃ¥Â¿Ã ÂµÂ¿Ã€Ã) =====
             int eatenCount = 0;
             while (eatenQueue.TryDequeue(out int idxEat))
             {
@@ -407,10 +412,10 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
                 Vector3 p = new Vector3(B.posCur[i].x, B.posCur[i].y, 0f);
 
-                // === ÀüÃ¼ ½ºÄõ½Ã TRS ===
-                // ¡å¡å¡å ½Ã°¢ °úÀå°è¼ö: ´õ ¸¹ÀÌ Âî±×·¯Áö°Ô ÇÏ·Á¸é µÎ ¹è¼ö ¿Ã¸®±â ¡å¡å¡å
-                float s = math.saturate(B.squash[i] * 0.60f); // 0.35 ¡æ 0.60 (½ºÄÉÀÏ ¾÷)
-                s = math.saturate(s * 3.0f);                  // 2.0 ¡æ 3.0 (°úÀå ¾÷)
+                // === Ã€Ã¼ÃƒÂ¼ Â½ÂºÃ„ÃµÂ½Ãƒ TRS ===
+                // Â¡Ã¥Â¡Ã¥Â¡Ã¥ Â½ÃƒÂ°Â¢ Â°ÃºÃ€Ã¥Â°Ã¨Â¼Ã¶: Â´Ãµ Â¸Â¹Ã€ÃŒ Ã‚Ã®Â±Ã—Â·Â¯ÃÃ¶Â°Ã” Ã‡ÃÂ·ÃÂ¸Ã© ÂµÃ Â¹Ã¨Â¼Ã¶ Â¿ÃƒÂ¸Â®Â±Ã¢ Â¡Ã¥Â¡Ã¥Â¡Ã¥
+                float s = math.saturate(B.squash[i] * 0.60f); // 0.35 Â¡Ã¦ 0.60 (Â½ÂºÃ„Ã‰Ã€Ã Â¾Ã·)
+                s = math.saturate(s * 3.0f);                  // 2.0 Â¡Ã¦ 3.0 (Â°ÃºÃ€Ã¥ Â¾Ã·)
 
 
                 const float SQUASH_VISUAL_MAX = 0.2f;
@@ -426,13 +431,25 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
                 matrices[countInBatch] = Matrix4x4.TRS(p, rot, new Vector3(major, minor, 1f));
 
-                // »ö
-                Color c = (B.state[i] == 2 && B.species[i] == 1)
-                    ? new Color(1f, 0.4f, 0.4f, 1f)
-                    : colorBySpecies.Evaluate(B.species[i]);
+      
+                // ìƒ‰
+                Color c;
+                if (B.state[i] == 2 && B.species[i] == SPEC_WBC)
+                {
+                    c = new Color(1f, 0.4f, 0.4f, 1f); // ë¼ì¹˜ëœ WBC ê°•ì¡°
+                }
+                else if (B.species[i] == SPEC_BACT)
+                {
+                    c = new Color(0.2f, 0.9f, 0.8f, 1f); //  ë°•í…Œë¦¬ì•„(ì‹œì•ˆ/ë¯¼íŠ¸í†¤)
+                }
+                else
+                {
+                    c = colorBySpecies.Evaluate(B.species[i]); // ê¸°ì¡´ ì¼ë°˜/ë°±í˜ˆêµ¬ ê·¸ë¼ë°ì´ì…˜
+                }
                 colors[countInBatch] = new Vector4(c.r, c.g, c.b, 1f);
 
-                // === µ§Æ® per-instance ===
+
+                // === ÂµÂ§Ã†Â® per-instance ===
                 dentDir0Arr[countInBatch] = new Vector4(B.dentDir0[i].x, B.dentDir0[i].y, 0, 0);
                 dentDir1Arr[countInBatch] = new Vector4(B.dentDir1[i].x, B.dentDir1[i].y, 0, 0);
                 dentDir2Arr[countInBatch] = new Vector4(B.dentDir2[i].x, B.dentDir2[i].y, 0, 0);
