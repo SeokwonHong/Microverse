@@ -112,7 +112,7 @@ Material:
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
     - _DstBlendAlpha: 0
-    - _EdgeDarken: 0.58
+    - _EdgeDarken: 0.74
     - _EnvironmentReflections: 1
     - _GlossMapScale: 0
     - _Glossiness: 0
@@ -122,11 +122,11 @@ Material:
     - _NucleusRatio: 18.71
     - _OcclusionStrength: 1
     - _OrganelleDensity: 15.31
-    - _OrganelleSize: 9.31
+    - _OrganelleSize: 13.16
     - _OrganelleSoft: 2.15
     - _Parallax: 0.005
-    - _PulseAmp: 0.03
-    - _PulseFreq: 1.03
+    - _PulseAmp: 0
+    - _PulseFreq: 5.15
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _RimNoiseAmp: 0.09
@@ -139,18 +139,18 @@ Material:
     - _SrcBlendAlpha: 1
     - _Surface: 0
     - _WobbleAmp: -0.06
-    - _WobbleFreq: 14.81
+    - _WobbleFreq: 21.26
     - _WorkflowMode: 1
     - _ZWrite: 1
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _CytoplasmInner: {r: 0, g: 0, b: 0, a: 1}
-    - _CytoplasmOuter: {r: 1, g: 1, b: 1, a: 1}
+    - _CytoplasmOuter: {r: 0, g: 0, b: 0, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _GlowColor: {r: 0, g: 0, b: 0, a: 1}
     - _NucleusColor: {r: 0, g: 0.13725495, b: 1, a: 1}
-    - _OrganelleColor: {r: 0.09433961, g: 0.09433961, b: 0.09433961, a: 1}
-    - _RimColor: {r: 1, g: 1, b: 1, a: 1}
+    - _OrganelleColor: {r: 0, g: 0, b: 0, a: 1}
+    - _RimColor: {r: 0.995283, g: 0.9292453, b: 1, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []

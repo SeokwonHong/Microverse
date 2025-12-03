@@ -1,96 +1,102 @@
 using UnityEngine;
 using Unity.Mathematics;
 
-namespace Microverse.Scripts.Simulation
+namespace Microverse.Scripts.Simulation.Runtime
 {
     public class PlayerController : MonoBehaviour
     {
-        [Header("Player")]
+        [Header("Player Bacteria")]
+        [Tooltip("플레이어 박테리아를 조작할지 여부 (CellSimulation에서 playerEnabled로 들어감)")]
         public bool enablePlayer = true;
-        public float radius = 0.001f;
-        public float speed = 6f;
-        public bool wrapEdges = false;
 
-        [Header("World Ref")]
+        [Tooltip("플레이어 박테리아 반지름 (CellSimulation → SimParams.playerRadius 로 전달됨)")]
+        public float radius = 0.25f;
+
+        [Tooltip("플레이어 체력 (백혈구가 붙으면 CellSimulation에서 깎음)")]
+        public float health = 100f;
+
+        [Header("World Bounds (CellSimulation에서 셋업)")]
+        [Tooltip("시뮬레이션 월드 크기 (CellSimulation.worldSize와 동일하게 세팅됨)")]
         public Vector2 worldSize = new Vector2(20, 11.25f);
 
-        [Header("Health")]
-        public float health = 10000f;
-        public float maxHealth = 10000f;
+        [Tooltip("가장자리를 넘어가면 반대편으로 워프할지 여부 (CellSimulation.wrapEdges와 동일)")]
+        public bool wrapEdges = false;
 
-        // ── 위치
-        private float2 _pos;
+        [Header("Movement")]
+        [Tooltip("마우스 위치로 얼마나 빠르게 따라갈지. 값이 클수록 더 즉각적으로 붙음")]
+        [Range(0.0f, 20f)]
+        public float followSpeed = 10f;
+
+        // ===== 시뮬레이션에서 직접 읽는 값들 =====
+        // CellSimulation.Update()에서:
+        // player.Pos, player.Vel, player.radius, player.enablePlayer 를 읽어서 SimParams에 넣음
         public float2 Pos => _pos;
+        public float2 Vel => _vel;
 
-        // ── 플레이어 속도(라치 해제용으로 추정)
-        private float2 _prevPos;
-        public float2 Vel { get; private set; }
+        Vector2 _pos;
+        Vector2 _prevPos;
+        Vector2 _vel;
+
+        Camera _cam;
 
         void Start()
         {
-            _pos = float2.zero;
+            _cam = Camera.main;
+
+            _pos = transform.position;
             _prevPos = _pos;
+
+            // quad mesh 기준: 시각적인 크기를 radius에 맞춤
+            transform.localScale = new Vector3(radius * 2f, radius * 2f, 1f);
         }
 
         void Update()
         {
-            if (!enablePlayer) return;
+            if (!enablePlayer)
+            {
+                _vel = Vector2.zero;
+                return;
+            }
 
-            // 속도 갱신
-            Vel = (_pos - _prevPos) / math.max(1e-6f, Time.deltaTime);
-            _prevPos = _pos;
+            if (_cam == null)
+                _cam = Camera.main;
+            if (_cam == null) return;
 
-            // 입력
-            float2 mv = new float2(Input.GetAxisRaw("Horizontal"),
-                                   Input.GetAxisRaw("Vertical"));
-            if (math.lengthsq(mv) > 1e-6f) mv = math.normalize(mv);
+            // --- 마우스 위치 → 월드 좌표로 변환 ---
+            Vector3 mouseScreen = Input.mousePosition;
 
-            _pos += mv * speed * Time.deltaTime;
+            // 오쏘 카메라 기준: z는 카메라 평면까지 거리 사용
+            float z = -_cam.transform.position.z;
+            Vector3 mouseWorld3 = _cam.ScreenToWorldPoint(new Vector3(mouseScreen.x, mouseScreen.y, z));
+            Vector2 target = new Vector2(mouseWorld3.x, mouseWorld3.y);
 
-            // 경계 처리
+            // --- 월드 경계 처리 (CellSimulation.worldSize 기준) ---
+            float halfX = worldSize.x * 0.5f;
+            float halfY = worldSize.y * 0.5f;
+
             if (wrapEdges)
             {
-                _pos = new float2(
-                    Wrap01(_pos.x, worldSize.x),
-                    Wrap01(_pos.y, worldSize.y)
-                );
+                if (target.x < -halfX) target.x += worldSize.x;
+                if (target.x > halfX) target.x -= worldSize.x;
+                if (target.y < -halfY) target.y += worldSize.y;
+                if (target.y > halfY) target.y -= worldSize.y;
             }
             else
             {
-                float hx = worldSize.x * 0.5f, hy = worldSize.y * 0.5f;
-                _pos.x = math.clamp(_pos.x, -hx + radius, hx - radius);
-                _pos.y = math.clamp(_pos.y, -hy + radius, hy - radius);
+                target.x = Mathf.Clamp(target.x, -halfX + radius, halfX - radius);
+                target.y = Mathf.Clamp(target.y, -halfY + radius, halfY - radius);
             }
 
-            // (선택) 체력 0일 때 사망 처리 예시
-            if (health <= 0f)
-            {
-                enablePlayer = false;
-                Debug.Log(" Player died");
-            }
-        }
+            // --- 마우스 위치로 부드럽게 따라가기 (followSpeed로 보간 강도 조절) ---
+            _prevPos = _pos;
+            float t = Mathf.Clamp01(followSpeed * Time.deltaTime);
+            _pos = Vector2.Lerp(_pos, target, t);
 
-        // ── 외부에서 위치 변경하고 싶을 때 쓰는 안전 API
-        public void Teleport(float2 p) => _pos = p;
-        public void Nudge(float2 delta) => _pos += delta;
+            // 실제 트랜스폼 위치 반영
+            transform.position = new Vector3(_pos.x, _pos.y, 0f);
 
-        // ── 체력 조작 유틸
-        public void ApplyDamage(float dmg)
-        {
-            health = math.max(0f, health - dmg);
-        }
-
-        public void Heal(float amount)
-        {
-            health = math.min(maxHealth, health + amount);
-        }
-
-        static float Wrap01(float x, float range)
-        {
-            float half = range * 0.5f;
-            if (x < -half) x += range;
-            else if (x > half) x -= range;
-            return x;
+            // 속도 계산 (백혈구 shakeBreakSpeed 체크에 사용됨)
+            _vel = (_pos - _prevPos) / Mathf.Max(Time.deltaTime, 1e-6f);
         }
     }
 }

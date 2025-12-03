@@ -62,6 +62,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
         [Header("Solver")]
         [Range(0, 8)] public int solveIterations = 2;
 
+        [Header("WBC Settings")]
+        public bool wbcEnabled = true;
+
         // ===== 내부 상태 =====
         Buffers B;
         GridData G;
@@ -214,6 +217,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
 
         void Update()
         {
+            
+
             P = new SimParams
             {
                 worldSize = worldSize,
@@ -240,6 +245,9 @@ namespace Microverse.Scripts.Simulation.Runtime.Systems
                 wbcLatchRadius = wbcLatchRadius,
                 wbcLatchSpring = wbcLatchSpring,
                 shakeBreakSpeed = shakeBreakSpeed,
+
+                wbcEnabled = (byte)(wbcEnabled ? 1 : 0),
+
 
                 tick = tick
             };

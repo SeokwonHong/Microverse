@@ -15,7 +15,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
         public SimParams P;
 
         // Grid
-        public int CellsX, CellsY; public float CellSize;
+        public int CellsX, CellsY;
+        public float CellSize;
         [ReadOnly] public NativeArray<HashHeader> Grid;
         [ReadOnly] public NativeArray<int> Indices;
 
@@ -37,7 +38,13 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
 
         public void Execute(int i)
         {
-            if (State[i] == 1) { PosNext[i] = PosCur[i]; VelNext[i] = 0; return; }
+            // 1) 죽은 셀은 고정
+            if (State[i] == 1)
+            {
+                PosNext[i] = PosCur[i];
+                VelNext[i] = 0;
+                return;
+            }
 
             float2 p = PosCur[i];
             float2 v = VelCur[i];
@@ -47,7 +54,7 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
 
             float2 f = 0;
 
-            // 이웃 스캔
+            // 2) 이웃 스캔 (공간 해시 사용)
             int cx = CellCoord(p.x, P.worldSize.x, CellSize, CellsX);
             int cy = CellCoord(p.y, P.worldSize.y, CellSize, CellsY);
 
@@ -57,8 +64,10 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
             for (int oy = -1; oy <= 1; oy++)
                 for (int ox = -1; ox <= 1; ox++)
                 {
-                    int nx = cx + ox, ny = cy + oy;
+                    int nx = cx + ox;
+                    int ny = cy + oy;
                     if ((uint)nx >= (uint)CellsX || (uint)ny >= (uint)CellsY) continue;
+
                     var h = Grid[ny * CellsX + nx];
 
                     for (int k = 0; k < h.count; k++)
@@ -85,35 +94,56 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
                         float wSep = math.saturate((target - dist) / target);
 
                         if (sp == sj)
-                        { if (P.sameAttract > 0f) { sumSame += n * wCoh; if (wCoh > 0f) cntSame++; } }
+                        {
+                            if (P.sameAttract > 0f)
+                            {
+                                sumSame += n * wCoh;
+                                if (wCoh > 0f) cntSame++;
+                            }
+                        }
                         else
-                        { if (P.diffRepel > 0f) { sumDiff += n * wSep; if (wSep > 0f) cntDiff++; } }
+                        {
+                            if (P.diffRepel > 0f)
+                            {
+                                sumDiff += n * wSep;
+                                if (wSep > 0f) cntDiff++;
+                            }
+                        }
                     }
                 }
 
             f += Forces.Cohesion(sumSame, cntSame, P.sameAttract, 0.6f);
             f += Forces.Separation(sumDiff, cntDiff, P.diffRepel, 0.8f);
 
-            // 플레이어 상호작용
+            // 3) 플레이어 상호작용
             if (P.playerEnabled == 1)
             {
-                // 필드 힘
-                f += PlayerInteract.PlayerField(p, P.playerPos, P.playerRadius, P.playerRange, P.stiffRepel, P.playerForce);
+                // 필드 힘 (커서 주변 중력장 / 반발장)
+                f += PlayerInteract.PlayerField(
+                    p,
+                    P.playerPos,
+                    P.playerRadius,
+                    P.playerRange,
+                    P.stiffRepel,
+                    P.playerForce
+                );
 
-                // 먹기(일반세포)
+                // 일반 세포 먹기
                 if (sp == 0 && st == 0)
                 {
                     float eatR = P.playerRadius + r + P.playerEatRadius;
                     if (PlayerInteract.TryEat(p, P.playerPos, eatR, out bool eaten) && eaten)
                     {
-                        PosNext[i] = p; VelNext[i] = 0;
+                        PosNext[i] = p;
+                        VelNext[i] = 0;
                         Eaten.Enqueue(i);
                         return;
                     }
                 }
 
-                // 백혈구
-                if (sp == 1)
+                // 4) 백혈구 (WBC)
+                //    → 여기서 P.wbcEnabled == 1 일 때만 동작하도록 토글
+                if (P.wbcEnabled == 1 && sp == 1)
                 {
                     float2 dp = P.playerPos - p;
                     float dist = math.length(dp) + 1e-6f;
@@ -122,10 +152,17 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
                     // 추적
                     f += n * P.wbcChaseForce;
 
-                    if (st == 2) // 라치
+                    if (st == 2) // 라치 상태
                     {
-                        f += PlayerInteract.LatchSpring(p, P.playerPos, LatchOffset[i], P.wbcLatchSpring);
-                        if (math.length(P.playerVel) >= P.shakeBreakSpeed) Unlatched.Enqueue(i);
+                        f += PlayerInteract.LatchSpring(
+                            p,
+                            P.playerPos,
+                            LatchOffset[i],
+                            P.wbcLatchSpring
+                        );
+
+                        if (math.length(P.playerVel) >= P.shakeBreakSpeed)
+                            Unlatched.Enqueue(i);
                     }
                     else // 라치 시도
                     {
@@ -135,19 +172,21 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
                 }
             }
 
-            // 점성/노이즈
+            // 5) 점성 & 노이즈
             f += Forces.Viscosity(v, P.viscosity);
+
             uint s1 = (uint)i * 741103597u ^ P.tick * 1597334677u;
             uint s2 = (uint)i * 312680891u ^ P.tick * 747796405u;
             f += Forces.RandCircle(s1, s2) * P.noise;
 
-            // 적분
+            // 6) 적분
             v += (f / math.max(1e-3f, P.mass)) * P.dt;
             float spd = math.length(v);
-            if (spd > P.maxSpeed) v *= (P.maxSpeed / spd);
+            if (spd > P.maxSpeed)
+                v *= (P.maxSpeed / spd);
             p += v * P.dt;
 
-            // 경계
+            // 7) 경계 처리
             if (P.wrapEdges)
             {
                 p.x = GridUtil.Wrap01(p.x, P.worldSize.x);
@@ -155,7 +194,8 @@ namespace Microverse.Scripts.Simulation.Runtime.Jobs
             }
             else
             {
-                float hx = P.worldSize.x * 0.5f, hy = P.worldSize.y * 0.5f;
+                float hx = P.worldSize.x * 0.5f;
+                float hy = P.worldSize.y * 0.5f;
                 if (p.x < -hx + r) { p.x = -hx + r; v.x *= -0.9f; }
                 if (p.x > hx - r) { p.x = hx - r; v.x *= -0.9f; }
                 if (p.y < -hy + r) { p.y = -hy + r; v.y *= -0.9f; }
